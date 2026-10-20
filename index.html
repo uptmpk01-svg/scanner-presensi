@@ -33,6 +33,27 @@
   </style>
 </head>
 <body>
+  <!-- Ganti dengan URL deployment Web App Apps Script Anda -->
+  <form
+    id="presensiForm"
+    method="POST"
+    action="https://script.google.com/macros/s/DEPLOYMENT_ID/exec"
+    target="presensiResponseFrame"
+  >
+    <input type="hidden" name="action" value="submitPresensi1">
+    <input type="hidden" name="qrData" id="qrData">
+  </form>
+  
+  <iframe
+    name="presensiResponseFrame"
+    id="presensiResponseFrame"
+    title="Respons presensi"
+    hidden
+  ></iframe>
+  
+  <p id="hasilPresensi" role="status" aria-live="polite">
+    Kamera siap digunakan.
+  </p>
   <h2>Scan QR untuk Presensi 1</h2>
   <div id="reader"></div>
   <p id="status">Tekan tombol untuk membuka kamera.</p>
