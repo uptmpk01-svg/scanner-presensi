@@ -1,0 +1,102 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scanner Presensi</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 25px auto;
+      padding: 16px;
+      text-align: center;
+      background: #f4f4f4;
+    }
+    #reader {
+      width: 100%;
+      margin: 20px auto;
+    }
+    #status {
+      overflow-wrap: anywhere;
+      padding: 12px;
+      background: white;
+      border-radius: 8px;
+    }
+    button {
+      padding: 12px 20px;
+      margin: 8px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h2>Scan QR untuk Presensi 1</h2>
+  <div id="reader"></div>
+  <p id="status">Tekan tombol untuk membuka kamera.</p>
+  <button id="startBtn">Buka Kamera</button>
+  <button id="againBtn" hidden>Scan Lagi</button>
+
+  <script>
+    let scanner;
+    let running = false;
+    let processing = false;
+
+    const status = document.getElementById("status");
+    const startBtn = document.getElementById("startBtn");
+    const againBtn = document.getElementById("againBtn");
+
+    async function startScanner() {
+      try {
+        if (running) return;
+
+        if (!scanner) {
+          scanner = new Html5Qrcode("reader");
+        }
+
+        status.textContent = "Meminta izin kamera...";
+        startBtn.disabled = true;
+
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          async (decodedText) => {
+            if (processing) return;
+            processing = true;
+
+            try {
+              await scanner.stop();
+              running = false;
+              status.textContent = "QR terdeteksi: " + decodedText;
+              againBtn.hidden = false;
+              startBtn.disabled = false;
+            } catch (err) {
+              status.textContent = "Gagal menghentikan scanner: " + err;
+              startBtn.disabled = false;
+            }
+          }
+        );
+
+        running = true;
+        status.textContent = "Kamera aktif. Arahkan ke QR Code.";
+        againBtn.hidden = true;
+      } catch (err) {
+        status.textContent =
+          "Kamera gagal dibuka: " + (err.message || err);
+      } finally {
+        startBtn.disabled = false;
+      }
+    }
+
+    startBtn.addEventListener("click", startScanner);
+
+    againBtn.addEventListener("click", () => {
+      processing = false;
+      againBtn.hidden = true;
+      startScanner();
+    });
+  </script>
+</body>
+</html>
