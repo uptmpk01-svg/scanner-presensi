@@ -1,12 +1,18 @@
-
+```html
 <!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Scanner Presensi</title>
+  <title>Scanner Presensi 1</title>
+
   <script src="https://unpkg.com/html5-qrcode"></script>
+
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       font-family: Arial, sans-serif;
       max-width: 600px;
@@ -14,158 +20,329 @@
       padding: 16px;
       text-align: center;
       background: #f4f4f4;
+      color: #222;
     }
+
+    h2 {
+      margin-bottom: 16px;
+    }
+
     #reader {
       width: 100%;
       margin: 20px auto;
+      background: white;
+      border-radius: 10px;
+      overflow: hidden;
     }
-    #status {
+
+    #status,
+    #hasilPresensi {
       overflow-wrap: anywhere;
       padding: 12px;
+      margin: 12px 0;
       background: white;
       border-radius: 8px;
+      line-height: 1.5;
     }
+
+    #hasilPresensi {
+      font-weight: bold;
+    }
+
     button {
       padding: 12px 20px;
       margin: 8px;
+      border: none;
+      border-radius: 8px;
       cursor: pointer;
+      font-size: 15px;
+      background: #1769aa;
+      color: white;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    #againBtn {
+      background: #287a45;
+    }
+
+    .catatan {
+      font-size: 13px;
+      color: #555;
+      line-height: 1.5;
     }
   </style>
 </head>
+
 <body>
-  <!-- Ganti dengan URL deployment Web App Apps Script Anda -->
+
+  <h2>Scan QR untuk Presensi I</h2>
+
+  <!-- Form untuk mengirim QR ke Apps Script -->
   <form
     id="presensiForm"
     method="POST"
     action="https://script.google.com/macros/s/AKfycbyWxGeTlgIAdVhNrLniRLItNM-xORAf1e7NiJou_9Wd2-nVsty9L57F6xDfOXAsB7BG/exec"
     target="presensiResponseFrame"
   >
-    <input type="hidden" name="action" value="submitPresensi1">
-    <input type="hidden" name="qrData" id="qrData">
+    <input
+      type="hidden"
+      name="action"
+      value="submitPresensi1"
+    >
+
+    <input
+      type="hidden"
+      name="qrData"
+      id="qrData"
+    >
   </form>
-  
+
+  <!-- Menerima respons dari Apps Script -->
   <iframe
     name="presensiResponseFrame"
     id="presensiResponseFrame"
     title="Respons presensi"
     hidden
   ></iframe>
-  
-  <p id="hasilPresensi" role="status" aria-live="polite">
-    Kamera siap digunakan.
-  </p>
-  <h2>Scan QR untuk Presensi 1</h2>
+
+  <div id="hasilPresensi" role="status" aria-live="polite">
+    Siap melakukan presensi.
+  </div>
+
   <div id="reader"></div>
-  <p id="status">Tekan tombol untuk membuka kamera.</p>
-  <button id="startBtn">Buka Kamera</button>
-  <button id="againBtn" hidden>Scan Lagi</button>
+
+  <p id="status">
+    Tekan tombol Buka Kamera untuk memulai.
+  </p>
+
+  <button id="startBtn" type="button">
+    Buka Kamera
+  </button>
+
+  <button id="againBtn" type="button" hidden>
+    Scan Lagi
+  </button>
+
+  <p class="catatan">
+    Arahkan kamera ke QR Code peserta. Pastikan QR berasal
+    dari sistem pendaftaran yang valid.
+  </p>
 
   <script>
-    
+    // =========================================
+    // KONFIGURASI DAN VARIABEL
+    // =========================================
+
+    let scanner = null;
+    let running = false;
+    let processing = false;
     let sedangMengirim = false;
-    let qrTerakhir = "";
-    
+
+    const status = document.getElementById("status");
+    const hasilPresensi = document.getElementById("hasilPresensi");
+    const startBtn = document.getElementById("startBtn");
+    const againBtn = document.getElementById("againBtn");
+    const qrDataInput = document.getElementById("qrData");
+    const presensiForm = document.getElementById("presensiForm");
+
+    // =========================================
+    // KIRIM QR KE APPS SCRIPT
+    // =========================================
+
     function kirimPresensi(qrData) {
       if (sedangMengirim) return;
-    
+
+      if (typeof qrData !== "string" || !qrData.trim()) {
+        hasilPresensi.textContent = "QR kosong atau tidak valid.";
+        processing = false;
+        againBtn.hidden = false;
+        return;
+      }
+
       sedangMengirim = true;
-      qrTerakhir = qrData;
-    
-      document.getElementById("hasilPresensi").textContent =
-        "Memproses presensi...";
-    
-      document.getElementById("qrData").value = qrData;
-      document.getElementById("presensiForm").submit();
+
+      hasilPresensi.textContent = "Memproses presensi...";
+      status.textContent = "QR berhasil dibaca. Mengirim data...";
+
+      qrDataInput.value = qrData.trim();
+
+      try {
+        presensiForm.submit();
+      } catch (err) {
+        sedangMengirim = false;
+        processing = false;
+
+        hasilPresensi.textContent =
+          "Gagal mengirim data: " + err.message;
+
+        againBtn.hidden = false;
+      }
     }
-    
+
+    // =========================================
+    // MENERIMA RESPONS APPS SCRIPT
+    // =========================================
+
     window.addEventListener("message", function (event) {
-      // Batasi asal pesan ke domain respons Apps Script.
       const trustedOrigins = [
         "https://script.googleusercontent.com",
         "https://script.google.com"
       ];
-    
+
       if (!trustedOrigins.includes(event.origin)) return;
-      if (!event.data || event.data.type !== "PRESENSI_RESULT") return;
-    
+
+      if (
+        !event.data ||
+        event.data.type !== "PRESENSI_RESULT"
+      ) {
+        return;
+      }
+
       const result = event.data.result;
-      if (!result || !["success", "error"].includes(result.status)) return;
-    
-      const output = document.getElementById("hasilPresensi");
-    
-      // Gunakan textContent, bukan innerHTML, untuk pesan respons.
-      output.textContent = result.message || "Respons presensi diterima.";
-    
+
+      if (
+        !result ||
+        !["success", "error"].includes(result.status)
+      ) {
+        return;
+      }
+
+      hasilPresensi.textContent =
+        result.message || "Respons presensi diterima.";
+
+      status.textContent =
+        result.status === "success"
+          ? "Presensi selesai diproses."
+          : "Presensi tidak berhasil. Periksa pesan di atas.";
+
       sedangMengirim = false;
+      processing = false;
+
+      // Tombol scan berikutnya tersedia setelah respons.
+      againBtn.hidden = false;
+      startBtn.disabled = false;
     });
 
-    
-    function onScanSuccess(decodedText, decodedResult) {
-      if (sedangMengirim) return;
-    
-      // Hentikan pemindaian berulang saat satu QR sedang diproses.
-      html5QrCode.pause(true);
-      kirimPresensi(decodedText);
+    // =========================================
+    // CALLBACK KETIKA QR BERHASIL DIBACA
+    // =========================================
+
+    async function onScanSuccess(decodedText) {
+      if (processing || sedangMengirim) return;
+
+      processing = true;
+      startBtn.disabled = true;
+      againBtn.hidden = true;
+
+      status.textContent = "QR terdeteksi: " + decodedText;
+
+      try {
+        if (scanner && running) {
+          await scanner.stop();
+          running = false;
+        }
+
+        kirimPresensi(decodedText);
+
+      } catch (err) {
+        running = false;
+        processing = false;
+        sedangMengirim = false;
+
+        hasilPresensi.textContent =
+          "Gagal menghentikan kamera: " + err.message;
+
+        status.textContent =
+          "Silakan coba kembali.";
+
+        againBtn.hidden = false;
+        startBtn.disabled = false;
+      }
     }
 
-    
-    let scanner;
-    let running = false;
-    let processing = false;
-
-    const status = document.getElementById("status");
-    const startBtn = document.getElementById("startBtn");
-    const againBtn = document.getElementById("againBtn");
+    // =========================================
+    // MEMBUKA KAMERA
+    // =========================================
 
     async function startScanner() {
-      try {
-        if (running) return;
+      if (running || processing || sedangMengirim) return;
 
+      try {
         if (!scanner) {
           scanner = new Html5Qrcode("reader");
         }
 
-        status.textContent = "Meminta izin kamera...";
         startBtn.disabled = true;
+        againBtn.hidden = true;
+        status.textContent = "Meminta izin kamera...";
 
         await scanner.start(
           { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          async (decodedText) => {
-            if (processing) return;
-            processing = true;
-
-            try {
-              await scanner.stop();
-              running = false;
-              status.textContent = "QR terdeteksi: " + decodedText;
-              againBtn.hidden = false;
-              startBtn.disabled = false;
-            } catch (err) {
-              status.textContent = "Gagal menghentikan scanner: " + err;
-              startBtn.disabled = false;
+          {
+            fps: 10,
+            qrbox: {
+              width: 250,
+              height: 250
             }
+          },
+          onScanSuccess,
+          function () {
+            // QR belum terbaca; lanjutkan pemindaian.
           }
         );
 
         running = true;
-        status.textContent = "Kamera aktif. Arahkan ke QR Code.";
-        againBtn.hidden = true;
-      } catch (err) {
+
         status.textContent =
-          "Kamera gagal dibuka: " + (err.message || err);
+          "Kamera aktif. Arahkan ke QR Code peserta.";
+
+        hasilPresensi.textContent =
+          "Menunggu QR Code...";
+
+      } catch (err) {
+        running = false;
+
+        status.textContent =
+          "Kamera gagal dibuka: " +
+          (err.message || err);
+
       } finally {
         startBtn.disabled = false;
       }
     }
 
-    startBtn.addEventListener("click", startScanner);
+    // =========================================
+    // TOMBOL SCAN LAGI
+    // =========================================
 
-    againBtn.addEventListener("click", () => {
+    async function scanLagi() {
+      if (running || sedangMengirim) return;
+
       processing = false;
+      hasilPresensi.textContent =
+        "Siap melakukan presensi berikutnya.";
+
+      status.textContent =
+        "Arahkan kamera ke QR Code peserta berikutnya.";
+
       againBtn.hidden = true;
-      startScanner();
-    });
+
+      await startScanner();
+    }
+
+    // =========================================
+    // EVENT TOMBOL
+    // =========================================
+
+    startBtn.addEventListener("click", startScanner);
+    againBtn.addEventListener("click", scanLagi);
+
   </script>
+
 </body>
 </html>
+```
