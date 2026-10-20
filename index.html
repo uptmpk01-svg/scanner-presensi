@@ -37,7 +37,7 @@
   <form
     id="presensiForm"
     method="POST"
-    action="https://script.google.com/macros/s/DEPLOYMENT_ID/exec"
+    action="https://script.google.com/macros/s/AKfycbyWxGeTlgIAdVhNrLniRLItNM-xORAf1e7NiJou_9Wd2-nVsty9L57F6xDfOXAsB7BG/exec"
     target="presensiResponseFrame"
   >
     <input type="hidden" name="action" value="submitPresensi1">
@@ -61,6 +61,54 @@
   <button id="againBtn" hidden>Scan Lagi</button>
 
   <script>
+    
+    let sedangMengirim = false;
+    let qrTerakhir = "";
+    
+    function kirimPresensi(qrData) {
+      if (sedangMengirim) return;
+    
+      sedangMengirim = true;
+      qrTerakhir = qrData;
+    
+      document.getElementById("hasilPresensi").textContent =
+        "Memproses presensi...";
+    
+      document.getElementById("qrData").value = qrData;
+      document.getElementById("presensiForm").submit();
+    }
+    
+    window.addEventListener("message", function (event) {
+      // Batasi asal pesan ke domain respons Apps Script.
+      const trustedOrigins = [
+        "https://script.googleusercontent.com",
+        "https://script.google.com"
+      ];
+    
+      if (!trustedOrigins.includes(event.origin)) return;
+      if (!event.data || event.data.type !== "PRESENSI_RESULT") return;
+    
+      const result = event.data.result;
+      if (!result || !["success", "error"].includes(result.status)) return;
+    
+      const output = document.getElementById("hasilPresensi");
+    
+      // Gunakan textContent, bukan innerHTML, untuk pesan respons.
+      output.textContent = result.message || "Respons presensi diterima.";
+    
+      sedangMengirim = false;
+    });
+
+    
+    function onScanSuccess(decodedText, decodedResult) {
+      if (sedangMengirim) return;
+    
+      // Hentikan pemindaian berulang saat satu QR sedang diproses.
+      html5QrCode.pause(true);
+      kirimPresensi(decodedText);
+    }
+
+    
     let scanner;
     let running = false;
     let processing = false;
