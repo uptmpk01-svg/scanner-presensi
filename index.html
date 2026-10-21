@@ -34,16 +34,15 @@
       <p>Arahkan kamera ke kode QR presensi Anda.</p>
     </header>
     <div id="reader" aria-label="Pemindai kode QR"></div>
-    <div id="status" role="status" aria-live="polite" data-kind="info">Siap memindai. Izinkan akses kamera jika diminta.</div>
+    <div id="status" role="status" aria-live="polite" data-kind="info">Menyiapkan kamera...</div>
     <div class="actions">
       <button id="scanButton" type="button">Mulai / Pindai Lagi</button>
       <button id="stopButton" class="secondary" type="button">Hentikan Kamera</button>
     </div>
-    <p class="note">Pastikan kode QR terlihat jelas dan koneksi internet stabil. Setelah satu QR terbaca, tunggu sampai hasil presensi muncul sebelum memindai lagi.</p>
+    <p class="note">Setelah QR terbaca, sistem mengirim presensi dan otomatis kembali ke pemindaian setelah 5 detik.</p>
   </main>
 
   <iframe class="hidden-frame" name="presensiResponseFrame" id="presensiResponseFrame" title="Respons presensi"></iframe>
-
   <form id="presensiForm" method="POST"
     action="https://script.google.com/macros/s/AKfycbyWxGeTlgIAdVhNrLniRLItNM-xORAf1e7NiJou_9Wd2-nVsty9L57F6xDfOXAsB7BG/exec"
     target="presensiResponseFrame">
@@ -59,10 +58,12 @@
       const stopButton = document.getElementById("stopButton");
       const form = document.getElementById("presensiForm");
       const qrDataInput = document.getElementById("qrData");
+
       let scanner = null;
       let scannerRunning = false;
       let requestPending = false;
-      let requestTimeout = null;
+      let restartTimer = null;
+      let currentCycle = 0;
 
       function setStatus(message, kind = "info") {
         statusEl.textContent = message;
@@ -71,24 +72,31 @@
 
       async function stopScanner() {
         if (!scanner || !scannerRunning) return;
-        try { await scanner.stop(); }
-        catch (error) { console.warn("Kamera tidak dapat dihentikan:", error); }
+        try {
+          await scanner.stop();
+        } catch (error) {
+          console.warn("Kamera tidak dapat dihentikan:", error);
+        }
         scannerRunning = false;
       }
 
       async function startScanner() {
         if (requestPending) {
-          setStatus("Presensi masih diproses. Tunggu hasilnya terlebih dahulu.", "working");
+          setStatus("Presensi sedang dikirim. Pemindaian akan aktif kembali sebentar lagi.", "working");
           return;
         }
+
         scanButton.disabled = true;
         setStatus("Menyiapkan kamera...", "info");
+
         try {
           if (!scanner) scanner = new Html5Qrcode("reader");
+
           if (scannerRunning) {
-            setStatus("Kamera sudah aktif. Arahkan ke kode QR.", "info");
+            setStatus("Kamera aktif. Arahkan ke kode QR Anda.", "info");
             return;
           }
+
           await scanner.start(
             { facingMode: "environment" },
             {
@@ -101,17 +109,22 @@
             },
             async decodedText => {
               if (requestPending) return;
+
               const qr = decodedText.trim();
               if (!/^[^/]{1,30}\/[A-Za-z0-9]{8}$/.test(qr)) {
                 setStatus("Format QR tidak sesuai. Pastikan QR presensi yang benar.", "error");
                 return;
               }
+
               requestPending = true;
+              currentCycle++;
+              const thisCycle = currentCycle;
               await stopScanner();
-              sendAttendance(qr);
+              sendAttendance(qr, thisCycle);
             },
             () => {}
           );
+
           scannerRunning = true;
           setStatus("Kamera aktif. Arahkan ke kode QR Anda.", "info");
         } catch (error) {
@@ -122,46 +135,50 @@
         }
       }
 
-      function sendAttendance(qr) {
+      function sendAttendance(qr, cycle) {
         qrDataInput.value = qr;
         scanButton.disabled = true;
-        setStatus("QR terbaca. Mengirim presensi ke server...", "working");
-        clearTimeout(requestTimeout);
-        requestTimeout = setTimeout(() => {
-          if (!requestPending) return;
-          requestPending = false;
-          setStatus("Respons server belum diterima. Periksa Spreadsheet sebelum mencoba lagi agar tidak mengirim berulang.", "error");
-          scanButton.disabled = false;
-        }, 20000);
+        setStatus("QR terbaca. Presensi dikirim. Kembali ke pemindaian dalam 5 detik...", "working");
+
         try {
           form.submit();
         } catch (error) {
-          clearTimeout(requestTimeout);
-          requestPending = false;
           console.error("Gagal mengirim formulir:", error);
-          setStatus("Gagal mengirim presensi. Periksa koneksi internet lalu coba lagi.", "error");
-          scanButton.disabled = false;
+          setStatus("Pengiriman presensi gagal. Periksa koneksi internet.", "error");
         }
+
+        // Tidak menunggu respons server: lanjutkan pemindaian setelah 5 detik.
+        clearTimeout(restartTimer);
+        restartTimer = setTimeout(async () => {
+          if (cycle !== currentCycle) return;
+          requestPending = false;
+          scanButton.disabled = false;
+          setStatus("Siap memindai QR berikutnya.", "info");
+          await startScanner();
+        }, 5000);
       }
 
       window.addEventListener("message", event => {
         if (!event.data || event.data.type !== "PRESENSI_RESULT") return;
         const result = event.data.result;
         if (!result || typeof result !== "object") return;
-        clearTimeout(requestTimeout);
-        requestPending = false;
-        scanButton.disabled = false;
-        if (result.status === "success") {
-          setStatus(result.message || "Presensi berhasil dicatat.", "success");
-        } else {
-          setStatus(result.message || "Presensi gagal diproses.", "error");
+
+        // Tampilkan hasil server bila diterima sebelum status berganti ke pemindaian berikutnya.
+        if (requestPending) {
+          if (result.status === "success") {
+            setStatus(result.message || "Presensi berhasil dicatat. Pemindaian berikutnya segera aktif.", "success");
+          } else {
+            setStatus(result.message || "Presensi gagal diproses. Pemindaian berikutnya segera aktif.", "error");
+          }
         }
       });
 
       scanButton.addEventListener("click", startScanner);
       stopButton.addEventListener("click", async () => {
+        clearTimeout(restartTimer);
+        requestPending = false;
         await stopScanner();
-        if (!requestPending) setStatus("Kamera dihentikan. Tekan “Mulai / Pindai Lagi” untuk melanjutkan.", "info");
+        setStatus("Kamera dihentikan. Tekan “Mulai / Pindai Lagi” untuk melanjutkan.", "info");
       });
 
       startScanner();
